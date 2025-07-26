@@ -1,0 +1,82 @@
+name: Build Rustdesk Client
+
+on:
+  push:
+    branches: [ main ]  # 触发条件：推送到 main 分支时
+  workflow_dispatch:    # 允许手动触发工作流
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: rustdesk-linux
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            artifact_name: rustdesk-windows
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            artifact_name: rustdesk-macos
+            target: x86_64-apple-darwin
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake libavcodec-dev libavformat-dev libavutil-dev libvpx-dev libx264-dev libx265-dev libssl-dev libxcb-shape0-dev libxcb-xfixes0-dev libsdl2-dev
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install cmake ffmpeg sdl2
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+
+      - name: Build UI
+        run: |
+          cd ui
+          npm install
+          npm run build
+
+      - name: Build Rustdesk
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target ${{ matrix.target }}
+
+      - name: Package artifacts
+        shell: bash
+        run: |
+          mkdir dist
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            cp target/${{ matrix.target }}/release/rustdesk.exe dist/
+          else
+            cp target/${{ matrix.target }}/release/rustdesk dist/
+          fi
+          cd dist
+          tar czvf ${{ matrix.artifact_name }}.tar.gz *
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.artifact_name }}.tar.gz
